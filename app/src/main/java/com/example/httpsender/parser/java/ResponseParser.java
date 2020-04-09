@@ -1,36 +1,52 @@
-package com.example.httpsender.parser;
-
+package com.example.httpsender.parser.java;
 
 import com.example.httpsender.entity.Response;
+
+import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.lang.reflect.Type;
 
-import rxhttp.wrapper.annotation.Parser;
 import rxhttp.wrapper.entity.ParameterizedTypeImpl;
 import rxhttp.wrapper.exception.ParseException;
 import rxhttp.wrapper.parse.AbstractParser;
 
 /**
- * Response<T> 数据解析器,解析完成对Response对象做判断,如果ok,返回数据 T
+ * 输入T,输出T,并对code统一判断
  * User: ljx
  * Date: 2018/10/23
  * Time: 13:49
  */
-@Parser(name = "Response")
+//@Parser(name = "Response", wrappers = {List.class, PageList.class})
 public class ResponseParser<T> extends AbstractParser<T> {
 
+    /**
+     * 此构造方法适用于任意Class对象，但更多用于带泛型的Class对象，如：List<Student>
+     * <p>
+     * 用法:
+     * Java: .asParser(new ResponseParser<List<Student>>(){})
+     * Kotlin: .asParser(object : ResponseParser<List<Student>>() {})
+     * <p>
+     * 注：此构造方法一定要用protected关键字修饰，否则调用此构造方法将拿不到泛型类型
+     */
     protected ResponseParser() {
         super();
     }
 
-    public ResponseParser(Class<T> type) {
+    /**
+     * 此构造方法仅适用于不带泛型的Class对象，如: Student.class
+     * <p>
+     * 用法
+     * Java: .asParser(new ResponseParser<>(Student.class))   或者  .asResponse(Student.class)
+     * Kotlin: .asParser(ResponseParser(Student::class.java)) 或者  .asResponse(Student::class.java)
+     */
+    public ResponseParser(Type type) {
         super(type);
     }
 
     @SuppressWarnings("unchecked")
     @Override
-    public T onParse(okhttp3.Response response) throws IOException {
+    public T onParse(@NotNull okhttp3.Response response) throws IOException {
         final Type type = ParameterizedTypeImpl.get(Response.class, mType); //获取泛型类型
         Response<T> data = convert(response, type);
         T t = data.getData(); //获取data字段

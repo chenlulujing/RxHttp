@@ -30,22 +30,25 @@ import io.reactivex.internal.queue.SpscLinkedArrayQueue;
 import io.reactivex.internal.util.AtomicThrowable;
 import io.reactivex.plugins.RxJavaPlugins;
 import okhttp3.Call;
+import okhttp3.Request;
 import okhttp3.Response;
 import rxhttp.wrapper.callback.ProgressCallback;
 import rxhttp.wrapper.entity.Progress;
+import rxhttp.wrapper.entity.ProgressT;
 import rxhttp.wrapper.param.Param;
 import rxhttp.wrapper.parse.DownloadParser;
 import rxhttp.wrapper.utils.LogUtil;
 
-public final class ObservableDownload extends Observable<Progress<String>> {
-    private final Param  param;
+public final class ObservableDownload extends Observable<Progress> {
+    private final Param param;
     private final String destPath;
-    private final long   offsetSize;
+    private final long offsetSize;
 
-    private Call    mCall;
-    private boolean isBreakpointDown;//是否断点下载
+    private Call mCall;
+    private Request mRequest;
 
     private int lastProgress; //上次下载进度
+
     ObservableDownload(Param param, final String destPath) {
         this(param, destPath, 0);
     }
@@ -57,8 +60,8 @@ public final class ObservableDownload extends Observable<Progress<String>> {
     }
 
     @Override
-    protected void subscribeActual(Observer<? super Progress<String>> observer) {
-        CreateEmitter<Progress<String>> emitter = new CreateEmitter<Progress<String>>(observer) {
+    protected void subscribeActual(Observer<? super Progress> observer) {
+        CreateEmitter<Progress> emitter = new CreateEmitter<Progress>(observer) {
             @Override
             public void dispose() {
                 cancelRequest(mCall);
@@ -68,10 +71,11 @@ public final class ObservableDownload extends Observable<Progress<String>> {
         observer.onSubscribe(emitter);
 
         try {
+            ProgressT<String> completeProgress = new ProgressT<>();  //下载完成回调
             Response response = execute(param, (progress, currentSize, totalSize) -> {
                 //这里最多回调100次,仅在进度有更新时,才会回调
-                Progress<String> p = new Progress<>(progress, currentSize, totalSize);
-                if (offsetSize > 0 && isBreakpointDown) {
+                Progress p = new Progress(progress, currentSize, totalSize);
+                if (offsetSize > 0) {
                     p.addCurrentSize(offsetSize);
                     p.addTotalSize(offsetSize);
                     p.updateProgress();
@@ -79,21 +83,29 @@ public final class ObservableDownload extends Observable<Progress<String>> {
                     if (currentProgress <= lastProgress) return;
                     lastProgress = currentProgress;
                 }
-                emitter.onNext(p);
+                if (p.isFinish()) {
+                    //下载完成的回调，需要带上本地存储路径，故这里先保存进度
+                    completeProgress.set(p);
+                } else {
+                    emitter.onNext(p);
+                }
             });
-            isBreakpointDown = response.header("Content-Range") != null;
             String filePath = new DownloadParser(destPath).onParse(response);
-            emitter.onNext(new Progress<>(filePath)); //最后一次回调文件下载路径
+            completeProgress.setResult(filePath);
+            emitter.onNext(completeProgress); //最后一次回调文件下载路径
             emitter.onComplete();
         } catch (Throwable e) {
-            LogUtil.log(param, e);
+            LogUtil.log(param.getUrl(), e);
             Exceptions.throwIfFatal(e);
             emitter.onError(e);
         }
     }
 
     private Response execute(@NonNull Param param, @NonNull ProgressCallback callback) throws Exception {
-        Call call = mCall = HttpSender.newCall(HttpSender.clone(callback), param);
+        if (mRequest == null) { //防止失败重试时，重复构造okhttp3.Request对象
+            mRequest = param.buildRequest();
+        }
+        Call call = mCall = HttpSender.newCall(HttpSender.clone(callback), mRequest);
         return call.execute();
     }
 
@@ -104,8 +116,8 @@ public final class ObservableDownload extends Observable<Progress<String>> {
     }
 
     static class CreateEmitter<T>
-            extends AtomicReference<Disposable>
-            implements ObservableEmitter<T>, Disposable {
+        extends AtomicReference<Disposable>
+        implements ObservableEmitter<T>, Disposable {
 
         private static final long serialVersionUID = -3434801548987643227L;
 
@@ -197,8 +209,8 @@ public final class ObservableDownload extends Observable<Progress<String>> {
      * @param <T> the value type
      */
     static final class SerializedEmitter<T>
-            extends AtomicInteger
-            implements ObservableEmitter<T> {
+        extends AtomicInteger
+        implements ObservableEmitter<T> {
 
         private static final long serialVersionUID = 4883307006032401862L;
 

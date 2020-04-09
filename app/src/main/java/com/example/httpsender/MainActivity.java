@@ -36,6 +36,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
+    @SuppressWarnings("deprecation")
     public void bitmap(View view) {
         String imageUrl = "http://img2.shelinkme.cn/d3/photos/0/017/022/755_org.jpg@!normal_400_400?1558517697888";
         RxHttp.get(imageUrl) //Get请求
@@ -176,7 +177,7 @@ public class MainActivity extends AppCompatActivity {
     public void xmlConverter(View view) {
         RxHttp.get("http://webservices.nextbus.com/service/publicXMLFeed?command=routeConfig&a=sf-muni")
             .setXmlConverter()
-            .asObject(NewsDataXml.class)
+            .asClass(NewsDataXml.class)
             .as(RxLife.asOnMain(this))  //感知生命周期，并在主线程回调
             .subscribe(dataXml -> {
                 mBinding.tvResult.setText(new Gson().toJson(dataXml));
@@ -266,8 +267,8 @@ public class MainActivity extends AppCompatActivity {
         long length = new File(destPath).length();
         RxHttp.get("/miaolive/Miaolive.apk")
             .setDomainToUpdateIfAbsent()//使用指定的域名
-            .setRangeHeader(length)  //设置开始下载位置，结束位置默认为文件末尾
-            .asDownload(destPath, length, progress -> { //如果需要衔接上次的下载进度，则需要传入上次已下载的字节数length
+            .setRangeHeader(length, -1, true)  //设置开始下载位置，结束位置默认为文件末尾
+            .asDownload(destPath, progress -> { //如果需要衔接上次的下载进度，则需要传入上次已下载的字节数length
                 //下载进度回调,0-100，仅在进度有更新时才会回调
                 int currentProgress = progress.getProgress(); //当前进度 0-100
                 long currentSize = progress.getCurrentSize(); //当前已下载的字节大小
@@ -308,13 +309,14 @@ public class MainActivity extends AppCompatActivity {
     public void uploadAndProgress(View v) {
         RxHttp.postForm("http://t.xinhuo.com/index.php/Api/Pic/uploadPic")
             .addFile("uploaded_file", new File(Environment.getExternalStorageDirectory(), "1.jpg"))
-            .asUpload(progress -> {
+            .upload(progress -> {
                 //上传进度回调,0-100，仅在进度有更新时才会回调
                 int currentProgress = progress.getProgress(); //当前进度 0-100
                 long currentSize = progress.getCurrentSize(); //当前已上传的字节大小
                 long totalSize = progress.getTotalSize();     //要上传的总字节大小
                 mBinding.tvResult.append("\n" + progress.toString());
             }, AndroidSchedulers.mainThread()) //指定回调(进度/成功/失败)线程,不指定,默认在请求所在线程回调
+            .asString()
             .as(RxLife.as(this))               //加入感知生命周期的观察者
             .subscribe(s -> {
                 //上传成功

@@ -1,6 +1,7 @@
 package com.rxhttp.compiler;
 
 
+import com.squareup.javapoet.ArrayTypeName;
 import com.squareup.javapoet.ClassName;
 import com.squareup.javapoet.JavaFile;
 import com.squareup.javapoet.MethodSpec;
@@ -24,8 +25,10 @@ import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeMirror;
+import javax.lang.model.type.TypeVariable;
 
 import rxhttp.wrapper.annotation.Param;
 
@@ -52,7 +55,6 @@ public class ParamsAnnotatedClass {
         TypeVariableName rxHttp = RxHttpGenerator.r;
         ClassName headerName = ClassName.get("okhttp3", "Headers");
         ClassName headerBuilderName = ClassName.get("okhttp3", "Headers.Builder");
-        ClassName requestName = ClassName.get("okhttp3", "Request");
         ClassName cacheControlName = ClassName.get("okhttp3", "CacheControl");
         ClassName progressCallbackName = ClassName.get("rxhttp.wrapper.callback", "ProgressCallback");
 
@@ -62,118 +64,153 @@ public class ParamsAnnotatedClass {
         ClassName jsonParamName = ClassName.get(RxHttpGenerator.packageName, "JsonParam");
         ClassName jsonArrayParamName = ClassName.get(RxHttpGenerator.packageName, "JsonArrayParam");
 
+        ClassName cacheModeName = ClassName.get("rxhttp.wrapper.cahce", "CacheMode");
 
 
         List<MethodSpec> methodList = new ArrayList<>();
         Map<String, String> methodMap = new LinkedHashMap<>();
-        methodMap.put("get", "RxHttp$NoBodyParam");
-        methodMap.put("head", "RxHttp$NoBodyParam");
-        methodMap.put("postForm", "RxHttp$FormParam");
-        methodMap.put("putForm", "RxHttp$FormParam");
-        methodMap.put("patchForm", "RxHttp$FormParam");
-        methodMap.put("deleteForm", "RxHttp$FormParam");
-        methodMap.put("postJson", "RxHttp$JsonParam");
-        methodMap.put("putJson", "RxHttp$JsonParam");
-        methodMap.put("patchJson", "RxHttp$JsonParam");
-        methodMap.put("deleteJson", "RxHttp$JsonParam");
-        methodMap.put("postJsonArray", "RxHttp$JsonArrayParam");
-        methodMap.put("putJsonArray", "RxHttp$JsonArrayParam");
-        methodMap.put("patchJsonArray", "RxHttp$JsonArrayParam");
-        methodMap.put("deleteJsonArray", "RxHttp$JsonArrayParam");
+        methodMap.put("get", "RxHttpNoBodyParam");
+        methodMap.put("head", "RxHttpNoBodyParam");
+        methodMap.put("postForm", "RxHttpFormParam");
+        methodMap.put("putForm", "RxHttpFormParam");
+        methodMap.put("patchForm", "RxHttpFormParam");
+        methodMap.put("deleteForm", "RxHttpFormParam");
+        methodMap.put("postJson", "RxHttpJsonParam");
+        methodMap.put("putJson", "RxHttpJsonParam");
+        methodMap.put("patchJson", "RxHttpJsonParam");
+        methodMap.put("deleteJson", "RxHttpJsonParam");
+        methodMap.put("postJsonArray", "RxHttpJsonArrayParam");
+        methodMap.put("putJsonArray", "RxHttpJsonArrayParam");
+        methodMap.put("patchJsonArray", "RxHttpJsonArrayParam");
+        methodMap.put("deleteJsonArray", "RxHttpJsonArrayParam");
 
         MethodSpec.Builder method;
         for (Map.Entry<String, String> map : methodMap.entrySet()) {
             method = MethodSpec.methodBuilder(map.getKey())
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
                 .addParameter(String.class, "url")
-                .addStatement("return with($T.$L(url))", paramName, map.getKey())
+                .addParameter(ArrayTypeName.of(Object.class), "formatArgs")
+                .varargs()
+                .addStatement("return with($T.$L(format(url, formatArgs)))", paramName, map.getKey())
                 .returns(ClassName.get(RxHttpGenerator.packageName, map.getValue()));
             methodList.add(method.build());
         }
 
         for (Entry<String, TypeElement> item : mElementMap.entrySet()) {
             TypeElement typeElement = item.getValue();
+            List<? extends TypeParameterElement> typeParameters = typeElement.getTypeParameters();
+            StringBuilder type = new StringBuilder();
+            List<TypeVariableName> rxHttpTypeNames = new ArrayList<>();
+            for (int i = 0, size = typeParameters.size(); i < size; i++) {
+                if (i == 0) type.append("<");
+                TypeParameterElement element = typeParameters.get(i);
+                TypeVariableName typeVariableName = TypeVariableName.get(element);
+                rxHttpTypeNames.add(typeVariableName);
+                type.append(typeVariableName.name).append(i < size - 1 ? "," : ">");
+            }
             ClassName param = ClassName.get(typeElement);
-            String rxHttpName = "RxHttp$" + typeElement.getSimpleName();
-            ClassName rxHttp$ParamName = ClassName.get(RxHttpGenerator.packageName, rxHttpName);
-            method = MethodSpec.methodBuilder(item.getKey())
-                .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
-                .addParameter(String.class, "url")
-                .addStatement("return new $T(new $T(url))", rxHttp$ParamName, param)
-                .returns(rxHttp$ParamName);
-            methodList.add(method.build());
+            String rxHttpName = "RxHttp" + typeElement.getSimpleName();
+            ClassName rxHttpParamName = ClassName.get(RxHttpGenerator.packageName, rxHttpName);
+            TypeName methodReturnType;
+            if (rxHttpTypeNames.size() > 0) {
+                methodReturnType = ParameterizedTypeName.get(rxHttpParamName, rxHttpTypeNames.toArray(new TypeName[0]));
+            } else {
+                methodReturnType = rxHttpParamName;
+            }
+
+            methodList.add(
+                MethodSpec.methodBuilder(item.getKey())
+                    .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+                    .addParameter(String.class, "url")
+                    .addTypeVariables(rxHttpTypeNames)
+                    .addParameter(ArrayTypeName.of(Object.class), "formatArgs")
+                    .varargs()
+                    .addStatement("return new $T" + type + "(new $T" + type + "(format(url, formatArgs)))", rxHttpParamName, param)
+                    .returns(methodReturnType)
+                    .build());
 
             TypeMirror superclass = typeElement.getSuperclass();
-            TypeName rxHttp$Param;
+            TypeName RxHttpParam;
             String prefix = "((" + param.simpleName() + ")param).";
             switch (superclass.toString()) {
                 case "rxhttp.wrapper.param.FormParam":
-                    rxHttp$Param = ClassName.get(RxHttpGenerator.packageName, "RxHttp$FormParam");
+                    RxHttpParam = ClassName.get(RxHttpGenerator.packageName, "RxHttpFormParam");
                     break;
                 case "rxhttp.wrapper.param.JsonParam":
-                    rxHttp$Param = ClassName.get(RxHttpGenerator.packageName, "RxHttp$JsonParam");
+                    RxHttpParam = ClassName.get(RxHttpGenerator.packageName, "RxHttpJsonParam");
                     break;
                 case "rxhttp.wrapper.param.NoBodyParam":
-                    rxHttp$Param = ClassName.get(RxHttpGenerator.packageName, "RxHttp$NoBodyParam");
+                    RxHttpParam = ClassName.get(RxHttpGenerator.packageName, "RxHttpNoBodyParam");
                     break;
                 default:
                     prefix = "param.";
-                    rxHttp$Param = ParameterizedTypeName.get(RxHttpGenerator.RXHTTP, param, rxHttp$ParamName);
+                    RxHttpParam = ParameterizedTypeName.get(RxHttpGenerator.RXHTTP, param, rxHttpParamName);
                     break;
             }
 
-            List<MethodSpec> rxHttp$PostEncryptFormParamMethod = new ArrayList<>();
+            List<MethodSpec> RxHttpPostEncryptFormParamMethod = new ArrayList<>();
 
             method = MethodSpec.constructorBuilder()
                 .addModifiers(Modifier.PUBLIC)
                 .addParameter(param, "param")
                 .addStatement("super(param)");
-            rxHttp$PostEncryptFormParamMethod.add(method.build());
+            RxHttpPostEncryptFormParamMethod.add(method.build());
 
             for (Element enclosedElement : typeElement.getEnclosedElements()) {
-                if (!(enclosedElement instanceof ExecutableElement)) continue;
-                if (!enclosedElement.getModifiers().contains(Modifier.PUBLIC))
-                    continue; //过滤非public修饰符
-                if (enclosedElement.getKind() != ElementKind.METHOD)
-                    continue; //过滤非方法，
-                if (enclosedElement.getAnnotation(Override.class) != null)
-                    continue; //过滤重写的方法
-                TypeMirror returnTypeMirror = ((ExecutableElement) enclosedElement).getReturnType();
-
-                TypeName returnType = TypeName.get(returnTypeMirror);
+                if (!(enclosedElement instanceof ExecutableElement)
+                    || enclosedElement.getKind() != ElementKind.METHOD          //过滤非方法，
+                    || !enclosedElement.getModifiers().contains(Modifier.PUBLIC)//过滤非public修饰符
+                    || enclosedElement.getAnnotation(Override.class) != null    //过滤重写的方法
+                ) continue;
+                ExecutableElement methodElement = (ExecutableElement) enclosedElement;
+                TypeName returnType = TypeName.get(methodElement.getReturnType()); //方法返回值
                 if (returnType.toString().equals(param.toString())) {
-                    returnType = rxHttp$ParamName;
+                    returnType = rxHttpParamName;
                 }
-                List<ParameterSpec> parameterSpecs = new ArrayList<>();
-                StringBuilder methodBuilder = new StringBuilder()
-                    .append(enclosedElement.getSimpleName().toString())
+                List<ParameterSpec> parameterSpecs = new ArrayList<>();  //方法参数
+                StringBuilder methodBody = new StringBuilder(enclosedElement.getSimpleName().toString())  //方法体
                     .append("(");
-                List<? extends VariableElement> parameters = ((ExecutableElement) enclosedElement).getParameters();
-                for (VariableElement element : parameters) {
+                for (VariableElement element : methodElement.getParameters()) {
                     ParameterSpec parameterSpec = ParameterSpec.get(element);
                     parameterSpecs.add(parameterSpec);
-                    methodBuilder.append(parameterSpec.name).append(",");
+                    methodBody.append(parameterSpec.name).append(",");
                 }
-                if (methodBuilder.toString().endsWith(",")) {
-                    methodBuilder.deleteCharAt(methodBuilder.length() - 1);
+                if (methodBody.toString().endsWith(",")) {
+                    methodBody.deleteCharAt(methodBody.length() - 1);
                 }
-                methodBuilder.append(")");
+                methodBody.append(")");
+
+                List<TypeVariableName> typeVariableNames = new ArrayList<>(); //方法声明的泛型
+                for (TypeParameterElement element : methodElement.getTypeParameters()) {
+                    TypeVariableName typeVariableName = TypeVariableName.get((TypeVariable) element.asType());
+                    typeVariableNames.add(typeVariableName);
+                }
+
+                List<TypeName> throwTypeName = new ArrayList<>(); //方法要抛出的异常
+                for (TypeMirror mirror : methodElement.getThrownTypes()) {
+                    TypeName typeName = TypeName.get(mirror);
+                    throwTypeName.add(typeName);
+                }
 
                 method = MethodSpec.methodBuilder(enclosedElement.getSimpleName().toString())
                     .addModifiers(enclosedElement.getModifiers())
+                    .addTypeVariables(typeVariableNames)
+                    .addExceptions(throwTypeName)
                     .addParameters(parameterSpecs);
+                if (methodElement.isVarArgs()) {
+                    method.varargs();
+                }
 
-                if (returnType == rxHttp$ParamName) {
-                    method.addStatement(prefix + methodBuilder, param)
+                if (returnType == rxHttpParamName) {
+                    method.addStatement(prefix + methodBody, param)
                         .addStatement("return this");
                 } else if (returnType.toString().equals("void")) {
-                    method.addStatement(prefix + methodBuilder);
+                    method.addStatement(prefix + methodBody);
                 } else {
-                    method.addStatement("return " + prefix + methodBuilder, param);
+                    method.addStatement("return " + prefix + methodBody, param);
                 }
                 method.returns(returnType);
-                rxHttp$PostEncryptFormParamMethod.add(method.build());
-
+                RxHttpPostEncryptFormParamMethod.add(method.build());
             }
 
             TypeSpec rxHttpPostEncryptFormParamSpec = TypeSpec.classBuilder(rxHttpName)
@@ -181,8 +218,9 @@ public class ParamsAnnotatedClass {
                     "\nhttps://github.com/liujingxing/RxHttp" +
                     "\nhttps://github.com/liujingxing/RxLife\n")
                 .addModifiers(Modifier.PUBLIC)
-                .superclass(rxHttp$Param)
-                .addMethods(rxHttp$PostEncryptFormParamMethod)
+                .addTypeVariables(rxHttpTypeNames)
+                .superclass(RxHttpParam)
+                .addMethods(RxHttpPostEncryptFormParamMethod)
                 .build();
 
             JavaFile.builder(RxHttpGenerator.packageName, rxHttpPostEncryptFormParamSpec)
@@ -192,29 +230,29 @@ public class ParamsAnnotatedClass {
         method = MethodSpec.methodBuilder("with")
             .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
             .addParameter(noBodyParamName, "noBodyParam")
-            .addStatement("return new $L(noBodyParam)", "RxHttp$NoBodyParam")
-            .returns(ClassName.get(RxHttpGenerator.packageName, "RxHttp$NoBodyParam"));
+            .addStatement("return new $L(noBodyParam)", "RxHttpNoBodyParam")
+            .returns(ClassName.get(RxHttpGenerator.packageName, "RxHttpNoBodyParam"));
         methodList.add(method.build());
 
         method = MethodSpec.methodBuilder("with")
             .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
             .addParameter(formParamName, "formParam")
-            .addStatement("return new $L(formParam)", "RxHttp$FormParam")
-            .returns(ClassName.get(RxHttpGenerator.packageName, "RxHttp$FormParam"));
+            .addStatement("return new $L(formParam)", "RxHttpFormParam")
+            .returns(ClassName.get(RxHttpGenerator.packageName, "RxHttpFormParam"));
         methodList.add(method.build());
 
         method = MethodSpec.methodBuilder("with")
             .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
             .addParameter(jsonParamName, "jsonParam")
-            .addStatement("return new $L(jsonParam)", "RxHttp$JsonParam")
-            .returns(ClassName.get(RxHttpGenerator.packageName, "RxHttp$JsonParam"));
+            .addStatement("return new $L(jsonParam)", "RxHttpJsonParam")
+            .returns(ClassName.get(RxHttpGenerator.packageName, "RxHttpJsonParam"));
         methodList.add(method.build());
 
         method = MethodSpec.methodBuilder("with")
             .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
             .addParameter(jsonArrayParamName, "jsonArrayParam")
-            .addStatement("return new $L(jsonArrayParam)", "RxHttp$JsonArrayParam")
-            .returns(ClassName.get(RxHttpGenerator.packageName, "RxHttp$JsonArrayParam"));
+            .addStatement("return new $L(jsonArrayParam)", "RxHttpJsonArrayParam")
+            .returns(ClassName.get(RxHttpGenerator.packageName, "RxHttpJsonArrayParam"));
         methodList.add(method.build());
 
         method = MethodSpec.methodBuilder("setUrl")
@@ -277,19 +315,48 @@ public class ParamsAnnotatedClass {
         method = MethodSpec.methodBuilder("setRangeHeader")
             .addModifiers(Modifier.PUBLIC)
             .addParameter(long.class, "startIndex")
-            .addStatement("param.setRangeHeader(startIndex)")
-            .addStatement("return (R)this")
+            .addStatement("return setRangeHeader(startIndex, -1, false)")
             .returns(rxHttp);
         methodList.add(method.build());
 
-        method = MethodSpec.methodBuilder("setRangeHeader")
-            .addModifiers(Modifier.PUBLIC)
-            .addParameter(long.class, "startIndex")
-            .addParameter(long.class, "endIndex")
-            .addStatement("param.setRangeHeader(startIndex,endIndex)")
-            .addStatement("return (R)this")
-            .returns(rxHttp);
-        methodList.add(method.build());
+        methodList.add(
+            MethodSpec.methodBuilder("setRangeHeader")
+                .addModifiers(Modifier.PUBLIC)
+                .addParameter(long.class, "startIndex")
+                .addParameter(long.class, "endIndex")
+                .addStatement("return setRangeHeader(startIndex, endIndex, false)")
+                .returns(rxHttp).build());
+
+        methodList.add(
+            MethodSpec.methodBuilder("setRangeHeader")
+                .addModifiers(Modifier.PUBLIC)
+                .addParameter(long.class, "startIndex")
+                .addParameter(boolean.class, "connectLastProgress")
+                .addStatement("return setRangeHeader(startIndex, -1, connectLastProgress)")
+                .returns(rxHttp).build());
+
+        methodList.add(
+            MethodSpec.methodBuilder("setRangeHeader")
+                .addJavadoc("设置断点下载开始/结束位置\n" +
+                    "@param startIndex 断点下载开始位置\n" +
+                    "@param endIndex 断点下载结束位置，默认为-1，即默认结束位置为文件末尾\n" +
+                    "@param connectLastProgress 是否衔接上次的下载进度，该参数仅在带进度断点下载时生效\n")
+                .addModifiers(Modifier.PUBLIC)
+                .addParameter(long.class, "startIndex")
+                .addParameter(long.class, "endIndex")
+                .addParameter(boolean.class, "connectLastProgress")
+                .addStatement("param.setRangeHeader(startIndex,endIndex)")
+                .addStatement("if(connectLastProgress) breakDownloadOffSize = startIndex")
+                .addStatement("return (R)this")
+                .returns(rxHttp).build());
+
+        methodList.add(
+            MethodSpec.methodBuilder("getBreakDownloadOffSize")
+                .addAnnotation(Override.class)
+                .addModifiers(Modifier.PUBLIC)
+                .addStatement("return breakDownloadOffSize")
+                .returns(long.class)
+                .build());
 
         method = MethodSpec.methodBuilder("removeAllHeader")
             .addModifiers(Modifier.PUBLIC)
@@ -314,15 +381,6 @@ public class ParamsAnnotatedClass {
             .addParameter(boolean.class, "enabled")
             .addStatement("param.setAssemblyEnabled(enabled)")
             .addStatement("return (R)this")
-            .returns(rxHttp);
-        methodList.add(method.build());
-
-        method = MethodSpec.methodBuilder("setConverterEnabled")
-            .addAnnotation(Deprecated.class)
-            .addJavadoc("@deprecated please user {@link #setDecoderEnabled(boolean)} instead\n")
-            .addModifiers(Modifier.PUBLIC)
-            .addParameter(boolean.class, "enabled")
-            .addStatement("return setDecoderEnabled(enabled)")
             .returns(rxHttp);
         methodList.add(method.build());
 
@@ -373,12 +431,6 @@ public class ParamsAnnotatedClass {
             .returns(headerBuilderName);
         methodList.add(method.build());
 
-        method = MethodSpec.methodBuilder("buildRequest")
-            .addModifiers(Modifier.PUBLIC)
-            .addStatement("return param.buildRequest()")
-            .returns(requestName);
-        methodList.add(method.build());
-
         method = MethodSpec.methodBuilder("tag")
             .addModifiers(Modifier.PUBLIC)
             .addParameter(Object.class, "tag")
@@ -388,14 +440,14 @@ public class ParamsAnnotatedClass {
         methodList.add(method.build());
 
         TypeVariableName t = TypeVariableName.get("T");
-        WildcardTypeName subString = WildcardTypeName.subtypeOf(t);
-        TypeName classTName = ParameterizedTypeName.get(ClassName.get(Class.class), subString);
+        WildcardTypeName superT = WildcardTypeName.supertypeOf(t);
+        TypeName classTName = ParameterizedTypeName.get(ClassName.get(Class.class), superT);
 
         method = MethodSpec.methodBuilder("tag")
             .addModifiers(Modifier.PUBLIC)
             .addTypeVariable(t)
             .addParameter(classTName, "type")
-            .addParameter(Object.class, "tag")
+            .addParameter(t, "tag")
             .addStatement("param.tag(type,tag)")
             .addStatement("return (R)this")
             .returns(rxHttp);
@@ -405,6 +457,30 @@ public class ParamsAnnotatedClass {
             .addModifiers(Modifier.PUBLIC)
             .addParameter(cacheControlName, "cacheControl")
             .addStatement("param.cacheControl(cacheControl)")
+            .addStatement("return (R)this")
+            .returns(rxHttp);
+        methodList.add(method.build());
+
+        method = MethodSpec.methodBuilder("setCacheKey")
+            .addModifiers(Modifier.PUBLIC)
+            .addParameter(String.class, "cacheKey")
+            .addStatement("param.setCacheKey(cacheKey)")
+            .addStatement("return (R)this")
+            .returns(rxHttp);
+        methodList.add(method.build());
+
+        method = MethodSpec.methodBuilder("setCacheValidTime")
+            .addModifiers(Modifier.PUBLIC)
+            .addParameter(long.class, "cacheValidTime")
+            .addStatement("param.setCacheValidTime(cacheValidTime)")
+            .addStatement("return (R)this")
+            .returns(rxHttp);
+        methodList.add(method.build());
+
+        method = MethodSpec.methodBuilder("setCacheMode")
+            .addModifiers(Modifier.PUBLIC)
+            .addParameter(cacheModeName, "cacheMode")
+            .addStatement("param.setCacheMode(cacheMode)")
             .addStatement("return (R)this")
             .returns(rxHttp);
         methodList.add(method.build());

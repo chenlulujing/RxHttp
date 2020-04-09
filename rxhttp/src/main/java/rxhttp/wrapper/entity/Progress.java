@@ -7,22 +7,13 @@ package rxhttp.wrapper.entity;
  *
  * It is NOT thread safe.
  */
-public class Progress<T> {
+public class Progress {
 
     private int  progress; //当前进度 0-100
     private long currentSize;//当前已完成的字节大小
     private long totalSize; //总字节大小
 
-    private T mResult; //http返回结果,上传/下载完成时调用
-
-    /**
-     * 上传/下载完成时调用,并将进度设置为-1
-     *
-     * @param result http执行结果
-     */
-    public Progress(T result) {
-        this(-1, -1, -1);
-        this.mResult = result;
+    public Progress() {
     }
 
     public Progress(int progress, long currentSize, long totalSize) {
@@ -31,11 +22,20 @@ public class Progress<T> {
         this.totalSize = totalSize;
     }
 
+    public void set(Progress progress) {
+        this.progress = progress.progress;
+        this.currentSize = progress.currentSize;
+        this.totalSize = progress.totalSize;
+    }
+
     /**
+     * 此方法的前身是isCompleted()
+     * 在v1.4.3版本中，对上传/下载进度的回调有改动，不会存在进度为-1的情况；
+     * 故无需在上传/下载回调中调用该方法，开发者可直接删除相关代码
      * @return 上传/下载是否完成
      */
-    public boolean isCompleted() {
-        return progress == -1;
+    public boolean isFinish() {
+        return progress == 100;
     }
 
     public int getProgress() {
@@ -50,16 +50,16 @@ public class Progress<T> {
         return totalSize;
     }
 
-    public T getResult() {
-        return mResult;
-    }
-
     public void updateProgress() {
         this.progress = (int) (currentSize * 100 / totalSize);
     }
 
     public void setCurrentSize(long currentSize) {
         this.currentSize = currentSize;
+    }
+
+    public void setProgress(int progress) {
+        this.progress = progress;
     }
 
     public void setTotalSize(long totalSize) {
@@ -80,7 +80,6 @@ public class Progress<T> {
                 "progress=" + progress +
                 ", currentSize=" + currentSize +
                 ", totalSize=" + totalSize +
-                ", mResult=" + mResult +
                 '}';
     }
 }

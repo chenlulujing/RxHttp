@@ -1,5 +1,7 @@
 package com.rxhttp.compiler;
 
+import com.squareup.javapoet.AnnotationSpec;
+import com.squareup.javapoet.ArrayTypeName;
 import com.squareup.javapoet.ClassName;
 import com.squareup.javapoet.FieldSpec;
 import com.squareup.javapoet.JavaFile;
@@ -28,10 +30,12 @@ public class RxHttpGenerator {
 
     static ClassName RXHTTP = ClassName.get(packageName, CLASSNAME);
 
-
+    private static TypeVariableName P = TypeVariableName.get("P");
     private static ClassName paramName = ClassName.get(packageName, "Param");
+    private static TypeName paramPName = ParameterizedTypeName.get(paramName, P);
+
     private static ClassName rxHttpName = ClassName.get(packageName, CLASSNAME);
-    private static TypeVariableName p = TypeVariableName.get("P", paramName);
+    static TypeVariableName p = TypeVariableName.get("P", paramName);
     static TypeVariableName r = TypeVariableName.get("R", rxHttpName);
 
     private ParamsAnnotatedClass mParamsAnnotatedClass;
@@ -60,7 +64,7 @@ public class RxHttpGenerator {
         this.defaultDomain = defaultDomain;
     }
 
-    public void generateCode(Elements elementUtils, Filer filer) throws IOException {
+    public void generateCode(Elements elementUtils, Filer filer, String platform) throws IOException {
         ClassName httpSenderName = ClassName.get("rxhttp", "HttpSender");
         ClassName rxHttpPluginsName = ClassName.get("rxhttp", "RxHttpPlugins");
         ClassName okHttpClientName = ClassName.get("okhttp3", "OkHttpClient");
@@ -82,13 +86,13 @@ public class RxHttpGenerator {
         TypeVariableName t = TypeVariableName.get("T");
         TypeName typeName = TypeName.get(String.class);
         ClassName progressName = ClassName.get("rxhttp.wrapper.entity", "Progress");
-        TypeName progressTName = ParameterizedTypeName.get(progressName, t);
+        ClassName progressTName = ClassName.get("rxhttp.wrapper.entity", "ProgressT");
+        TypeName progressTTName = ParameterizedTypeName.get(progressTName, t);
         TypeName progressStringName = ParameterizedTypeName.get(progressName, typeName);
         ClassName consumerName = ClassName.get("io.reactivex.functions", "Consumer");
         ClassName observableName = ClassName.get("io.reactivex", "Observable");
         TypeName observableStringName = ParameterizedTypeName.get(observableName, typeName);
-        TypeName consumerProgressStringName = ParameterizedTypeName.get(consumerName, progressStringName);
-        TypeName consumerProgressTName = ParameterizedTypeName.get(consumerName, progressTName);
+        TypeName consumerProgressName = ParameterizedTypeName.get(consumerName, progressName);
         ClassName parserName = ClassName.get("rxhttp.wrapper.parse", "Parser");
         TypeName parserTName = ParameterizedTypeName.get(parserName, t);
         TypeName observableTName = ParameterizedTypeName.get(observableName, t);
@@ -102,13 +106,13 @@ public class RxHttpGenerator {
         TypeName mapName = ParameterizedTypeName.get(ClassName.get(Map.class), subString, subObject);
 
         ClassName noBodyParamName = ClassName.get(packageName, "NoBodyParam");
-        ClassName rxHttpNoBodyName = ClassName.get(packageName, "RxHttp$NoBodyParam");
+        ClassName rxHttpNoBodyName = ClassName.get(packageName, "RxHttpNoBodyParam");
         ClassName formParamName = ClassName.get(packageName, "FormParam");
-        ClassName rxHttpFormName = ClassName.get(packageName, "RxHttp$FormParam");
+        ClassName rxHttpFormName = ClassName.get(packageName, "RxHttpFormParam");
         ClassName jsonParamName = ClassName.get(packageName, "JsonParam");
-        ClassName rxHttpJsonName = ClassName.get(packageName, "RxHttp$JsonParam");
+        ClassName rxHttpJsonName = ClassName.get(packageName, "RxHttpJsonParam");
         ClassName jsonArrayParamName = ClassName.get(packageName, "JsonArrayParam");
-        ClassName rxHttpJsonArrayName = ClassName.get(packageName, "RxHttp$JsonArrayParam");
+        ClassName rxHttpJsonArrayName = ClassName.get(packageName, "RxHttpJsonArrayParam");
 
         TypeName rxHttpNoBody = ParameterizedTypeName.get(RXHTTP, noBodyParamName, rxHttpNoBodyName);
         TypeName rxHttpForm = ParameterizedTypeName.get(RXHTTP, formParamName, rxHttpFormName);
@@ -144,20 +148,11 @@ public class RxHttpGenerator {
             .returns(void.class);
         methodList.add(method.build());
 
-        method = MethodSpec.methodBuilder("setOnConverter")
-            .addAnnotation(Deprecated.class)
-            .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
-            .addJavadoc("@deprecated please user {@link #setResultDecoder(Function)} instead\n")
-            .addParameter(mapStringName, "converter")
-            .addStatement("setResultDecoder(converter)")
-            .returns(void.class);
-        methodList.add(method.build());
-
         method = MethodSpec.methodBuilder("setResultDecoder")
             .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
             .addJavadoc("设置统一数据解码/解密器，每次请求成功后会回调该接口并传入Http请求的结果" +
                 "\n通过该接口，可以统一对数据解密，并将解密后的数据返回即可" +
-                "\n若部分接口不需要回调该接口，发请求前，调用{@link #setConverterEnabled(boolean)}方法设置false即可\n")
+                "\n若部分接口不需要回调该接口，发请求前，调用{@link #setDecoderEnabled(boolean)}方法设置false即可\n")
             .addParameter(mapStringName, "decoder")
             .addStatement("$T.setResultDecoder(decoder)", rxHttpPluginsName)
             .returns(void.class);
@@ -202,11 +197,12 @@ public class RxHttpGenerator {
         methodList.add(method.build());
 
         methodList.addAll(mParamsAnnotatedClass.getMethodList(filer));
-        methodList.addAll(mParserAnnotatedClass.getMethodList());
+        methodList.addAll(mParserAnnotatedClass.getMethodList(filer));
         methodList.addAll(mConverterAnnotatedClass.getMethodList());
         method = MethodSpec.methodBuilder("addDefaultDomainIfAbsent")
             .addJavadoc("给Param设置默认域名(如何缺席的话)，此方法会在请求发起前，被RxHttp内部调用\n")
-            .addParameter(paramName, "param");
+            .addModifiers(Modifier.PRIVATE)
+            .addParameter(p, "param");
         if (defaultDomain != null) {
             method.addStatement("String newUrl = addDomainIfAbsent(param.getSimpleUrl(), $T.$L)",
                 ClassName.get(defaultDomain.getEnclosingElement().asType()),
@@ -214,10 +210,19 @@ public class RxHttpGenerator {
                 .addStatement("param.setUrl(newUrl)");
         }
         method.addStatement("return param")
-            .returns(paramName);
+            .returns(p);
         methodList.add(method.build());
 
         methodList.addAll(mDomainAnnotatedClass.getMethodList());
+
+        method = MethodSpec.methodBuilder("format")
+            .addModifiers(Modifier.PRIVATE, Modifier.STATIC)
+            .addParameter(String.class, "url")
+            .addParameter(ArrayTypeName.of(Object.class), "formatArgs")
+            .varargs()
+            .addStatement("return formatArgs == null || formatArgs.length == 0 ? url : String.format(url, formatArgs)")
+            .returns(String.class);
+        methodList.add(method.build());
 
         FieldSpec schedulerField = FieldSpec.builder(schedulerName, "scheduler", Modifier.PROTECTED)
             .initializer("$T.io()", schedulersName)
@@ -228,14 +233,26 @@ public class RxHttpGenerator {
             .initializer("$T.getConverter()", rxHttpPluginsName)
             .build();
 
+        FieldSpec breakDownloadOffSize = FieldSpec.builder(long.class, "breakDownloadOffSize", Modifier.PRIVATE)  //添加变量
+            .initializer("0L")
+            .build();
+
+        AnnotationSpec build = AnnotationSpec.builder(SuppressWarnings.class)
+            .addMember("value", "\"unchecked\"")
+            .build();
+
+        ClassName baseRxHttpName = ClassName.get("rxhttp", "BaseRxHttp");
         TypeSpec rxHttp = TypeSpec.classBuilder(CLASSNAME)
             .addJavadoc("Github" +
                 "\nhttps://github.com/liujingxing/RxHttp" +
                 "\nhttps://github.com/liujingxing/RxLife\n")
             .addModifiers(Modifier.PUBLIC)
+            .addAnnotation(build)
             .addField(p, "param", Modifier.PROTECTED)
             .addField(schedulerField)
             .addField(converterSpec)
+            .addField(breakDownloadOffSize)
+            .superclass(baseRxHttpName)
             .addTypeVariable(p)
             .addTypeVariable(r)
             .addMethods(methodList)
@@ -337,7 +354,7 @@ public class RxHttpGenerator {
             .returns(listObjectName);
         methodList.add(method.build());
 
-        TypeSpec rxHttpNoBodySpec = TypeSpec.classBuilder("RxHttp$NoBodyParam")
+        TypeSpec rxHttpNoBodySpec = TypeSpec.classBuilder("RxHttpNoBodyParam")
             .addJavadoc("Github" +
                 "\nhttps://github.com/liujingxing/RxHttp" +
                 "\nhttps://github.com/liujingxing/RxLife\n")
@@ -442,6 +459,8 @@ public class RxHttpGenerator {
         methodList.add(method.build());
 
         method = MethodSpec.methodBuilder("add")
+            .addAnnotation(Deprecated.class)
+            .addJavadoc("@deprecated please user {@link #addFile(String,File)} instead\n")
             .addModifiers(Modifier.PUBLIC)
             .addParameter(String.class, "key")
             .addParameter(File.class, "file")
@@ -536,46 +555,103 @@ public class RxHttpGenerator {
             .returns(rxHttpFormName);
         methodList.add(method.build());
 
-        method = MethodSpec.methodBuilder("asUpload")
-            .addModifiers(Modifier.PUBLIC)
-            .addParameter(consumerProgressStringName, "progressConsumer")
-            .addStatement("return asUpload($T.get(String.class), progressConsumer, null)", simpleParserName)
-            .returns(observableStringName);
-        methodList.add(method.build());
+        methodList.add(
+            MethodSpec.methodBuilder("upload")
+                .addModifiers(Modifier.PUBLIC)
+                .addParameter(consumerProgressName, "progressConsumer")
+                .addStatement("return upload(progressConsumer, null)")
+                .returns(rxHttpFormName)
+                .build());
 
-        method = MethodSpec.methodBuilder("asUpload")
-            .addModifiers(Modifier.PUBLIC)
-            .addParameter(consumerProgressStringName, "progressConsumer")
-            .addParameter(schedulerName, "observeOnScheduler")
-            .addStatement("return asUpload($T.get(String.class), progressConsumer, observeOnScheduler)", simpleParserName)
-            .returns(observableStringName);
-        methodList.add(method.build());
+        methodList.add(
+            MethodSpec.methodBuilder("upload")
+                .addJavadoc("监听上传进度")
+                .addJavadoc("\n@param progressConsumer   进度回调")
+                .addJavadoc("\n@param observeOnScheduler 用于控制下游回调所在线程(包括进度回调) ，仅当 progressConsumer 不为 null 时生效")
+                .addModifiers(Modifier.PUBLIC)
+                .addParameter(consumerProgressName, "progressConsumer")
+                .addParameter(schedulerName, "observeOnScheduler")
+                .addStatement("this.progressConsumer = progressConsumer")
+                .addStatement("this.observeOnScheduler = observeOnScheduler")
+                .addStatement("return this")
+                .returns(rxHttpFormName)
+                .build());
 
-        method = MethodSpec.methodBuilder("asUpload")
-            .addModifiers(Modifier.PUBLIC)
-            .addTypeVariable(t)
-            .addParameter(parserTName, "parser")
-            .addParameter(consumerProgressTName, "progressConsumer")
-            .addParameter(schedulerName, "observeOnScheduler")
-            .addStatement("setConverter(param)")
-            .addStatement("Observable<Progress<T>> observable = $T\n" +
-                ".uploadProgress(addDefaultDomainIfAbsent(param), parser, scheduler)", httpSenderName)
-            .beginControlFlow("if(observeOnScheduler != null)")
-            .addStatement("observable=observable.observeOn(observeOnScheduler)")
-            .endControlFlow()
-            .addStatement("return observable.doOnNext(progressConsumer)\n" +
-                ".filter(Progress::isCompleted)\n" +
-                ".map(Progress::getResult)")
-            .returns(observableTName);
-        methodList.add(method.build());
+        methodList.add(
+            MethodSpec.methodBuilder("asParser")
+                .addModifiers(Modifier.PUBLIC)
+                .addAnnotation(Override.class)
+                .addTypeVariable(t)
+                .addParameter(parserTName, "parser")
+                .beginControlFlow("if(progressConsumer == null)")
+                .addStatement("return super.asParser(parser)")
+                .endControlFlow()
+                .addStatement("doOnStart()")
+                .addStatement("Observable<Progress> observable = $T.uploadProgress(param, parser, scheduler)", httpSenderName)
+                .beginControlFlow("if(observeOnScheduler != null)")
+                .addStatement("observable = observable.observeOn(observeOnScheduler)")
+                .endControlFlow()
+                .addStatement("return observable.doOnNext(progressConsumer)\n" +
+                    ".filter(progress -> progress instanceof ProgressT)\n" +
+                    ".map(progress -> (($T) progress).getResult())", progressTTName)
+                .returns(observableTName).build());
 
+        methodList.add(
+            MethodSpec.methodBuilder("asUpload")
+                .addAnnotation(Deprecated.class)
+                .addJavadoc("Will be removed in a future release")
+                .addJavadoc("\nPlease use {@link RxHttpFormParam#upload(Consumer, Scheduler)} + asXxx method instead")
+                .addModifiers(Modifier.PUBLIC)
+                .addParameter(consumerProgressName, "progressConsumer")
+                .addStatement("return asUpload($T.get(String.class), progressConsumer, null)", simpleParserName)
+                .returns(observableStringName)
+                .build());
 
-        TypeSpec rxHttpFormSpec = TypeSpec.classBuilder("RxHttp$FormParam")
+        methodList.add(
+            MethodSpec.methodBuilder("asUpload")
+                .addAnnotation(Deprecated.class)
+                .addJavadoc("Will be removed in a future release")
+                .addJavadoc("\nPlease use {@link RxHttpFormParam#upload(Consumer, Scheduler)} + asXxx method instead")
+                .addModifiers(Modifier.PUBLIC)
+                .addParameter(consumerProgressName, "progressConsumer")
+                .addParameter(schedulerName, "observeOnScheduler")
+                .addStatement("return asUpload($T.get(String.class), progressConsumer, observeOnScheduler)", simpleParserName)
+                .returns(observableStringName)
+                .build());
+
+        methodList.add(
+            MethodSpec.methodBuilder("asUpload")
+                .addAnnotation(Deprecated.class)
+                .addJavadoc("Will be removed in a future release")
+                .addJavadoc("\nPlease use {@link RxHttpFormParam#upload(Consumer, Scheduler)} + asXxx method instead")
+                .addModifiers(Modifier.PUBLIC)
+                .addTypeVariable(t)
+                .addParameter(parserTName, "parser")
+                .addParameter(consumerProgressName, "progressConsumer")
+                .addParameter(schedulerName, "observeOnScheduler")
+                .addStatement("upload(progressConsumer, observeOnScheduler)")
+                .addStatement("return asParser(parser)")
+                .returns(observableTName)
+                .build());
+
+        FieldSpec observeOnSchedulerField = FieldSpec
+            .builder(schedulerName, "observeOnScheduler", Modifier.PRIVATE)
+            .addJavadoc("用于控制下游回调所在线程(包括进度回调)，仅当{@link progressConsumer}不为 null 时生效")
+            .build();
+
+        FieldSpec progressConsumerField = FieldSpec
+            .builder(consumerProgressName, "progressConsumer", Modifier.PRIVATE)
+            .addJavadoc("用于监听上传进度回调")
+            .build();
+
+        TypeSpec rxHttpFormSpec = TypeSpec.classBuilder("RxHttpFormParam")
             .addJavadoc("Github" +
                 "\nhttps://github.com/liujingxing/RxHttp" +
                 "\nhttps://github.com/liujingxing/RxLife\n")
             .addModifiers(Modifier.PUBLIC)
             .superclass(rxHttpForm)
+            .addField(observeOnSchedulerField)
+            .addField(progressConsumerField)
             .addMethods(methodList)
             .build();
 
@@ -647,7 +723,7 @@ public class RxHttpGenerator {
             .returns(rxHttpJsonName);
         methodList.add(method.build());
 
-        TypeSpec rxHttpJsonSpec = TypeSpec.classBuilder("RxHttp$JsonParam")
+        TypeSpec rxHttpJsonSpec = TypeSpec.classBuilder("RxHttpJsonParam")
             .addJavadoc("Github" +
                 "\nhttps://github.com/liujingxing/RxHttp" +
                 "\nhttps://github.com/liujingxing/RxLife\n")
@@ -755,7 +831,7 @@ public class RxHttpGenerator {
             .returns(rxHttpJsonArrayName);
         methodList.add(method.build());
 
-        TypeSpec rxHttpJsonArraySpec = TypeSpec.classBuilder("RxHttp$JsonArrayParam")
+        TypeSpec rxHttpJsonArraySpec = TypeSpec.classBuilder("RxHttpJsonArrayParam")
             .addJavadoc("Github" +
                 "\nhttps://github.com/liujingxing/RxHttp" +
                 "\nhttps://github.com/liujingxing/RxLife\n")

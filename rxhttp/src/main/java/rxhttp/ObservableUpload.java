@@ -29,18 +29,21 @@ import io.reactivex.internal.queue.SpscLinkedArrayQueue;
 import io.reactivex.internal.util.AtomicThrowable;
 import io.reactivex.plugins.RxJavaPlugins;
 import okhttp3.Call;
+import okhttp3.Request;
 import okhttp3.Response;
 import rxhttp.wrapper.entity.Progress;
+import rxhttp.wrapper.entity.ProgressT;
 import rxhttp.wrapper.param.IFile;
 import rxhttp.wrapper.param.Param;
 import rxhttp.wrapper.parse.Parser;
 import rxhttp.wrapper.utils.LogUtil;
 
-public final class ObservableUpload<T> extends Observable<Progress<T>> {
+public final class ObservableUpload<T> extends Observable<Progress> {
     private final Param param;
     private final Parser<T> parser;
 
     private Call mCall;
+    private Request mRequest;
 
     ObservableUpload(Param param, final Parser<T> parser) {
         this.param = param;
@@ -48,8 +51,8 @@ public final class ObservableUpload<T> extends Observable<Progress<T>> {
     }
 
     @Override
-    protected void subscribeActual(Observer<? super Progress<T>> observer) {
-        CreateEmitter<Progress<T>> emitter = new CreateEmitter<Progress<T>>(observer) {
+    protected void subscribeActual(Observer<? super Progress> observer) {
+        CreateEmitter<Progress> emitter = new CreateEmitter<Progress>(observer) {
             @Override
             public void dispose() {
                 cancelRequest(mCall);
@@ -59,15 +62,22 @@ public final class ObservableUpload<T> extends Observable<Progress<T>> {
         observer.onSubscribe(emitter);
 
         try {
-            ((IFile)param).setProgressCallback((progress, currentSize, totalSize) -> {
+            ProgressT<T> completeProgress = new ProgressT<>(); //上传完成回调
+            ((IFile) param).setProgressCallback((progress, currentSize, totalSize) -> {
                 //这里最多回调100次,仅在进度有更新时,才会回调
-                emitter.onNext(new Progress<>(progress, currentSize, totalSize));
+                Progress p = new Progress(progress, currentSize, totalSize);
+                if (p.isFinish()) {
+                    //上传完成的回调，需要带上请求返回值，故这里先保存进度
+                    completeProgress.set(p);
+                } else {
+                    emitter.onNext(p);
+                }
             });
-            T t = execute(param);
-            emitter.onNext(new Progress<>(t)); //最后一次回调Http执行结果
+            completeProgress.setResult(execute(param));
+            emitter.onNext(completeProgress); //最后一次回调Http执行结果
             emitter.onComplete();
         } catch (Throwable e) {
-            LogUtil.log(param, e);
+            LogUtil.log(param.getUrl(), e);
             Exceptions.throwIfFatal(e);
             emitter.onError(e);
         }
@@ -75,7 +85,10 @@ public final class ObservableUpload<T> extends Observable<Progress<T>> {
 
     //执行请求
     private T execute(Param param) throws Exception {
-        Call call = mCall = HttpSender.newCall(param);
+        if (mRequest == null) { //防止失败重试时，重复构造okhttp3.Request对象
+            mRequest = param.buildRequest();
+        }
+        Call call = mCall = HttpSender.newCall(mRequest);
         Response response = call.execute();
         return parser.onParse(response);
     }

@@ -1,6 +1,5 @@
 package rxhttp.wrapper.param;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -14,13 +13,14 @@ import rxhttp.wrapper.entity.KeyValuePair;
 import rxhttp.wrapper.entity.UpFile;
 import rxhttp.wrapper.progress.ProgressRequestBody;
 import rxhttp.wrapper.utils.BuildUtil;
+import rxhttp.wrapper.utils.CacheUtil;
 
 /**
  * post、put、patch、delete请求
  * 参数以{application/x-www-form-urlencoded}形式提交
  * 当带有文件时，自动以{multipart/form-data}形式提交
  * 当调用{@link #setMultiForm()}方法，强制以{multipart/form-data}形式提交
- *
+ * <p>
  * User: ljx
  * Date: 2019-09-09
  * Time: 21:08
@@ -36,7 +36,7 @@ public class FormParam extends AbstractParam<FormParam> implements IUploadLength
 
     /**
      * @param url    请求路径
-     * @param method {@link Method#POST,Method#PUT,Method#DELETE,Method#PATCH}
+     * @param method Method#POST  Method#PUT  Method#DELETE  Method#PATCH
      */
     public FormParam(String url, Method method) {
         super(url, method);
@@ -44,6 +44,7 @@ public class FormParam extends AbstractParam<FormParam> implements IUploadLength
 
     @Override
     public FormParam add(String key, Object value) {
+        if (value == null) value = "";
         return add(new KeyValuePair(key, value));
     }
 
@@ -158,6 +159,8 @@ public class FormParam extends AbstractParam<FormParam> implements IUploadLength
 
     /**
      * 设置提交方式为{multipart/form-data}
+     *
+     * @return FormParam
      */
     public FormParam setMultiForm() {
         isMultiForm = true;
@@ -165,10 +168,10 @@ public class FormParam extends AbstractParam<FormParam> implements IUploadLength
     }
 
     @Override
-    public void checkLength() throws IOException {
+    public void checkLength() {
         long totalFileLength = getTotalFileLength();
         if (totalFileLength > uploadMaxLength)
-            throw new IOException("The current total file length is " + totalFileLength + " byte, " +
+            throw new IllegalArgumentException("The current total file length is " + totalFileLength + " byte, " +
                 "this length cannot be greater than " + uploadMaxLength + " byte");
     }
 
@@ -212,6 +215,14 @@ public class FormParam extends AbstractParam<FormParam> implements IUploadLength
 
     public boolean isMultiForm() {
         return isMultiForm;
+    }
+
+    @Override
+    public String getCacheKey() {
+        String cacheKey = super.getCacheKey();
+        if (cacheKey != null) return cacheKey;
+        List<KeyValuePair> keyValuePairs = CacheUtil.excludeCacheKey(mKeyValuePairs);
+        return BuildUtil.getHttpUrl(getSimpleUrl(), keyValuePairs).toString();
     }
 
     @Override

@@ -1,6 +1,5 @@
 package rxhttp.wrapper.utils;
 
-import android.util.Log;
 
 import java.io.EOFException;
 import java.io.IOException;
@@ -19,6 +18,7 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 import okio.Buffer;
 import okio.BufferedSource;
+import rxhttp.Platform;
 import rxhttp.RxHttpPlugins;
 import rxhttp.wrapper.exception.HttpStatusCodeException;
 import rxhttp.wrapper.exception.ParseException;
@@ -47,11 +47,12 @@ public class LogUtil {
     //打印Http请求连接失败异常日志
     public static void log(Throwable throwable) {
         if (!isDebug) return;
-        Log.e(TAG_RXJAVA, throwable.toString());
+        Platform.get().loge(TAG_RXJAVA, throwable.toString());
     }
 
     //打印Http请求连接失败异常日志
-    public static void log(@NonNull Param param, Throwable throwable) {
+    @SuppressWarnings("deprecation")
+    public static void log(String url, Throwable throwable) {
         if (!isDebug) return;
         try {
             throwable.printStackTrace();
@@ -59,11 +60,11 @@ public class LogUtil {
                 .append(throwable.toString());
             if (!(throwable instanceof ParseException) && !(throwable instanceof HttpStatusCodeException)) {
                 builder.append("\n\n")
-                    .append(URLDecoder.decode(param.getUrl()));
+                    .append(URLDecoder.decode(url));
             }
-            Log.e(TAG, builder.toString());
+            Platform.get().loge(TAG, builder.toString());
         } catch (Exception e) {
-            Log.d(TAG, "Request error Log printing failed", e);
+            Platform.get().logd(TAG, "Request error Log printing failed", e);
         }
     }
 
@@ -84,9 +85,9 @@ public class LogUtil {
             builder.append("\n\n").append(getEncodedUrlAndParams(request))
                 .append("\n\n").append(response.headers())
                 .append("\n").append(result);
-            Log.i(TAG, builder.toString());
+            Platform.get().logi(TAG, builder.toString());
         } catch (Exception e) {
-            Log.d(TAG, "Request end Log printing failed", e);
+            Platform.get().logd(TAG, "Request end Log printing failed", e);
         }
     }
 
@@ -97,12 +98,13 @@ public class LogUtil {
             String builder = "<------------------- request start Method=" +
                 request.method() + " ------------------->" +
                 request2Str(request);
-            Log.d(TAG, builder);
+            Platform.get().logd(TAG, builder);
         } catch (Exception e) {
-            Log.d(TAG, "Request start log printing failed", e);
+            Platform.get().logd(TAG, "Request start log printing failed", e);
         }
     }
 
+    @SuppressWarnings("deprecation")
     public static String getEncodedUrlAndParams(Request request) {
         String result;
         try {
@@ -190,6 +192,7 @@ public class LogUtil {
         return urlBuilder.toString();
     }
 
+    @SuppressWarnings("deprecation")
     private static String getResult(ResponseBody body, boolean onResultDecoder) throws IOException {
         BufferedSource source = body.source();
         source.request(Long.MAX_VALUE); // Buffer the entire body.

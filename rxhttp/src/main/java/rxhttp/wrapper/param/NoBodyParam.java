@@ -11,6 +11,7 @@ import okhttp3.HttpUrl;
 import okhttp3.RequestBody;
 import rxhttp.wrapper.entity.KeyValuePair;
 import rxhttp.wrapper.utils.BuildUtil;
+import rxhttp.wrapper.utils.CacheUtil;
 
 /**
  * Get、Head没有body的请求调用此类
@@ -24,7 +25,7 @@ public class NoBodyParam extends AbstractParam<NoBodyParam> {
 
     /**
      * @param url    请求路径
-     * @param method {@link Method#GET,Method#HEAD,Method#DELETE}
+     * @param method Method#GET  Method#HEAD  Method#DELETE
      */
     public NoBodyParam(String url, Method method) {
         super(url, method);
@@ -42,6 +43,7 @@ public class NoBodyParam extends AbstractParam<NoBodyParam> {
 
     @Override
     public NoBodyParam add(String key, Object value) {
+        if (value == null) value = "";
         return add(new KeyValuePair(key, value));
     }
 
@@ -113,6 +115,18 @@ public class NoBodyParam extends AbstractParam<NoBodyParam> {
     @Override
     public final RequestBody getRequestBody() {
         return null;
+    }
+
+    @Override
+    public String getCacheKey() {
+        String cacheKey = super.getCacheKey();
+        if (cacheKey != null) return cacheKey;
+        List<KeyValuePair> keyValuePairs = CacheUtil.excludeCacheKey(mKeyValuePairs);
+        return BuildUtil.getHttpUrl(getSimpleUrl(), keyValuePairs).toString();
+    }
+
+    public List<KeyValuePair> getKeyValuePairs() {
+        return mKeyValuePairs;
     }
 
     @Override

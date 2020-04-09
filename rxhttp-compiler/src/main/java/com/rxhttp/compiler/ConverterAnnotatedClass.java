@@ -54,7 +54,8 @@ public class ConverterAnnotatedClass {
 
         method = MethodSpec.methodBuilder("setConverter")
             .addJavadoc("给Param设置转换器，此方法会在请求发起前，被RxHttp内部调用\n")
-            .addParameter(paramName, "param")
+            .addModifiers(Modifier.PRIVATE)
+            .addParameter(RxHttpGenerator.p, "param")
             .addStatement("param.tag(IConverter.class,converter)")
             .addStatement("return (R)this")
             .returns(RxHttpGenerator.r);

@@ -1,6 +1,8 @@
 package rxhttp.wrapper.exception;
 
 
+import org.jetbrains.annotations.NotNull;
+
 import java.io.IOException;
 
 import io.reactivex.annotations.NonNull;
@@ -20,7 +22,9 @@ public class ExceptionHelper {
      *
      * @param response Http响应体
      * @throws IOException 请求失败异常、网络不可用异常
+     * @return ResponseBody
      */
+    @NotNull
     public static ResponseBody throwIfFatal(@NonNull Response response) throws IOException {
         ResponseBody body = response.body();
         if (body == null)

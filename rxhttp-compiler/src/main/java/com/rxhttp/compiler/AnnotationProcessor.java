@@ -5,6 +5,7 @@ import com.rxhttp.compiler.exception.ProcessingException;
 import java.io.IOException;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import javax.annotation.processing.AbstractProcessor;
@@ -40,6 +41,8 @@ public class AnnotationProcessor extends AbstractProcessor {
     private Messager messager;
     private Filer filer;
     private Elements elementUtils;
+    private boolean processed;
+    private String platform;
 
     @Override
     public synchronized void init(ProcessingEnvironment processingEnvironment) {
@@ -48,6 +51,12 @@ public class AnnotationProcessor extends AbstractProcessor {
         messager = processingEnvironment.getMessager();
         filer = processingEnvironment.getFiler();
         elementUtils = processingEnvironment.getElementUtils();
+
+        Map<String, String> map = processingEnvironment.getOptions();
+        platform = map.get("platform");
+        if (platform == null) {
+            platform = "Android";
+        }
     }
 
     @Override
@@ -55,6 +64,7 @@ public class AnnotationProcessor extends AbstractProcessor {
         Set<String> annotations = new LinkedHashSet<>();
         annotations.add(Param.class.getCanonicalName());
         annotations.add(Parser.class.getCanonicalName());
+        annotations.add(Converter.class.getCanonicalName());
         annotations.add(Domain.class.getCanonicalName());
         annotations.add(DefaultDomain.class.getCanonicalName());
         annotations.add(Override.class.getCanonicalName());
@@ -69,7 +79,8 @@ public class AnnotationProcessor extends AbstractProcessor {
 
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
-//        messager.printMessage(Kind.WARNING, "process start annotations.size=" + annotations.size());
+//        messager.printMessage(Kind.WARNING, "process start annotations" + annotations + " this=" + this);
+        if (annotations.isEmpty() || processed) return true;
         try {
             RxHttpGenerator rxHttpGenerator = new RxHttpGenerator();
 
@@ -115,7 +126,8 @@ public class AnnotationProcessor extends AbstractProcessor {
             rxHttpGenerator.setAnnotatedClass(domainAnnotatedClass);
 
             // Generate code
-            rxHttpGenerator.generateCode(elementUtils, filer);
+            rxHttpGenerator.generateCode(elementUtils, filer, platform);
+            processed = true;
         } catch (ProcessingException e) {
             error(e.getElement(), e.getMessage());
         } catch (IOException e) {
@@ -169,43 +181,25 @@ public class AnnotationProcessor extends AbstractProcessor {
         }
 
         TypeElement currentClass = element;
-        All:
         while (true) {
             List<? extends TypeMirror> interfaces = currentClass.getInterfaces();
+            //遍历实现的接口有没有Parser接口
             for (TypeMirror typeMirror : interfaces) {
-                if (!typeMirror.toString().equals("rxhttp.wrapper.parse.Parser<T>")) continue;
-                break All;
+                if (typeMirror.toString().contains("rxhttp.wrapper.parse.Parser")) {
+                    return;
+                }
             }
+            //未遍历到Parser，则找到父类继续，一直循环下去，直到最顶层的父类
             TypeMirror superClassType = currentClass.getSuperclass();
-
             if (superClassType.getKind() == TypeKind.NONE) {
                 throw new ProcessingException(element,
                     "The class %s annotated with @%s must inherit from %s",
                     element.getQualifiedName().toString(), Parser.class.getSimpleName(),
                     "rxhttp.wrapper.parse.Parser<T>");
             }
+            //TypeMirror转TypeElement
             currentClass = (TypeElement) typeUtils.asElement(superClassType);
         }
-
-//        for (Element enclosedElement : element.getEnclosedElements()) {
-//            if (!(enclosedElement instanceof ExecutableElement)) continue;
-//            if (!enclosedElement.getModifiers().contains(Modifier.PUBLIC)
-//                    || !enclosedElement.getModifiers().contains(Modifier.STATIC)) continue;
-//            if (!enclosedElement.toString().equals("<T>get(java.lang.Class<T>)")) continue;
-//            ExecutableElement executableElement = (ExecutableElement) enclosedElement;
-//            TypeMirror returnType = executableElement.getReturnType();
-//            if (!typeUtils.asElement(returnType).toString()
-//                    .equals(element.getQualifiedName().toString())) continue;
-//            if (returnType instanceof DeclaredType) {
-//                DeclaredType declaredType = (DeclaredType) returnType;
-//                if (declaredType.getTypeArguments().size() == 1) return;
-//            }
-//        }
-
-        // No empty constructor found
-//        throw new ProcessingException(element,
-//                "The class %s must provide an public static <T> %s get(Class<T> t) mehod",
-//                element.getQualifiedName().toString(), element.getQualifiedName().toString() + "<T>");
     }
 
     private void checkConverterValidClass(VariableElement element) throws ProcessingException {
@@ -219,10 +213,25 @@ public class AnnotationProcessor extends AbstractProcessor {
                 "The variable %s is not static",
                 element.getSimpleName().toString());
         }
-        if (!"rxhttp.wrapper.callback.IConverter".equals(element.asType().toString())) {
-            throw new ProcessingException(element,
-                "The variable %s is not a IConverter",
-                element.getSimpleName().toString());
+        TypeMirror classType = element.asType();
+        if (!"rxhttp.wrapper.callback.IConverter".equals(classType.toString())) {
+            while (true) {
+                //TypeMirror转TypeElement
+                TypeElement currentClass = (TypeElement) typeUtils.asElement(classType);
+                //遍历实现的接口有没有IConverter接口
+                for (TypeMirror mirror : currentClass.getInterfaces()) {
+                    if (mirror.toString().equals("rxhttp.wrapper.callback.IConverter")) {
+                        return;
+                    }
+                }
+                //未遍历到IConverter，则找到父类继续，一直循环下去，直到最顶层的父类
+                classType = currentClass.getSuperclass();
+                if (classType.getKind() == TypeKind.NONE) {
+                    throw new ProcessingException(element,
+                        "The variable %s is not a IConverter",
+                        element.getSimpleName().toString());
+                }
+            }
         }
 
     }

@@ -4,8 +4,13 @@ package rxhttp.wrapper.param;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import io.reactivex.annotations.NonNull;
 import io.reactivex.annotations.Nullable;
+import okhttp3.HttpUrl;
+import okhttp3.HttpUrl.Builder;
 import okhttp3.RequestBody;
+import rxhttp.wrapper.utils.CacheUtil;
+import rxhttp.wrapper.utils.GsonUtil;
 
 /**
  * post、put、patch、delete请求，参数以{application/json; charset=utf-8}形式提交
@@ -19,7 +24,7 @@ public class JsonParam extends AbstractParam<JsonParam> implements IJsonObject<J
 
     /**
      * @param url    请求路径
-     * @param method {@link Method#POST,Method#PUT,Method#DELETE,Method#PATCH}
+     * @param method Method#POST  Method#PUT  Method#DELETE  Method#PATCH
      */
     public JsonParam(String url, Method method) {
         super(url, method);
@@ -34,8 +39,7 @@ public class JsonParam extends AbstractParam<JsonParam> implements IJsonObject<J
     }
 
     @Override
-    public JsonParam add(String key, Object value) {
-        if (value == null) value = "";
+    public JsonParam add(String key, @NonNull Object value) {
         Map<String, Object> param = mParam;
         if (param == null) {
             param = mParam = new LinkedHashMap<>();
@@ -47,6 +51,17 @@ public class JsonParam extends AbstractParam<JsonParam> implements IJsonObject<J
     @Nullable
     public Map<String, Object> getParams() {
         return mParam;
+    }
+
+    @Override
+    public String getCacheKey() {
+        String cacheKey = super.getCacheKey();
+        if (cacheKey != null) return cacheKey;
+        Map<?, ?> param = CacheUtil.excludeCacheKey(mParam);
+        String json = GsonUtil.toJson(param);
+        HttpUrl httpUrl = HttpUrl.get(getSimpleUrl());
+        Builder builder = httpUrl.newBuilder().addQueryParameter("json", json);
+        return builder.toString();
     }
 
     @Override

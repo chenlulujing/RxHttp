@@ -6,7 +6,11 @@ import java.util.List;
 
 import io.reactivex.annotations.NonNull;
 import io.reactivex.annotations.Nullable;
+import okhttp3.HttpUrl;
+import okhttp3.HttpUrl.Builder;
 import okhttp3.RequestBody;
+import rxhttp.wrapper.utils.CacheUtil;
+import rxhttp.wrapper.utils.GsonUtil;
 
 /**
  * post、put、patch、delete请求，参数以{application/json; charset=utf-8}形式提交
@@ -20,7 +24,7 @@ public class JsonArrayParam extends AbstractParam<JsonArrayParam> implements IJs
 
     /**
      * @param url    请求路径
-     * @param method {@link Method#POST, Method#PUT, Method#DELETE, Method#PATCH}
+     * @param method Method#POST  Method#PUT  Method#DELETE  Method#PATCH
      */
     public JsonArrayParam(String url, Method method) {
         super(url, method);
@@ -36,6 +40,7 @@ public class JsonArrayParam extends AbstractParam<JsonArrayParam> implements IJs
 
     /**
      * JsonArray类型请求，所有add系列方法内部最终都会调用此方法
+     *
      * @param object Object
      * @return JsonArrayParam
      */
@@ -49,7 +54,7 @@ public class JsonArrayParam extends AbstractParam<JsonArrayParam> implements IJs
     }
 
     @Override
-    public JsonArrayParam add(String key, Object value) {
+    public JsonArrayParam add(String key, @NonNull Object value) {
         HashMap<String, Object> map = new HashMap<>();
         map.put(key, value);
         return add(map);
@@ -58,6 +63,17 @@ public class JsonArrayParam extends AbstractParam<JsonArrayParam> implements IJs
     @Nullable
     public List<Object> getList() {
         return mList;
+    }
+
+    @Override
+    public String getCacheKey() {
+        String cacheKey = super.getCacheKey();
+        if (cacheKey != null) return cacheKey;
+        List<Object> list = CacheUtil.excludeCacheKey(mList);
+        String json = GsonUtil.toJson(list);
+        HttpUrl httpUrl = HttpUrl.get(getSimpleUrl());
+        Builder builder = httpUrl.newBuilder().addQueryParameter("json", json);
+        return builder.toString();
     }
 
     @Override
